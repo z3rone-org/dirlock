@@ -278,3 +278,57 @@ def test_multiple_locks_cleanup(tmpdir):
         assert not lock.acquired
     for lockdir in lockdirs:
         assert not os.path.exists(lockdir)
+
+
+def test_atexit_on_unhandled_exception(tmpdir):
+    """Test that atexit cleanup works even when script crashes with unhandled exception."""
+    # Create a test script that uses DirLock and crashes with an exception
+    test_script = f'''
+import os
+import sys
+sys.path.insert(0, "{os.path.dirname(os.path.dirname(__file__))}")
+from dirlock import DirLock
+
+lockdir = "{os.path.join(tmpdir, '.lock')}"
+lock = DirLock(lockdir)
+lock.acquire()
+
+# Write a marker file to show the lock was acquired
+with open("{os.path.join(tmpdir, 'acquired')}", "w") as f:
+    f.write("locked")
+
+# Verify lock directory exists before crashing
+if not os.path.exists(lockdir):
+    raise RuntimeError("Lock directory was not created!")
+
+# Write another marker to confirm lock was in place
+with open("{os.path.join(tmpdir, 'lock_verified')}", "w") as f:
+    f.write("lock was verified to exist")
+
+# Crash with an unhandled exception
+raise ValueError("Intentional crash to test cleanup")
+'''
+
+    script_path = os.path.join(tmpdir, 'test_crash_script.py')
+    with open(script_path, 'w') as f:
+        f.write(test_script)
+
+    # Run the script (it should crash)
+    result = subprocess.run([sys.executable, script_path],
+                           capture_output=True, text=True)
+
+    # Check that script crashed as expected
+    assert result.returncode != 0, "Script should have crashed"
+    assert "ValueError" in result.stderr, "Should contain the exception"
+    assert "Intentional crash" in result.stderr, "Should contain our error message"
+
+    # Check that the lock was acquired
+    assert os.path.exists(os.path.join(tmpdir, 'acquired'))
+
+    # Check that the lock was verified to exist before the crash
+    assert os.path.exists(os.path.join(tmpdir, 'lock_verified')), \
+        "Lock should have been verified before crash"
+
+    # Most importantly: check that the lock was cleaned up despite the crash
+    assert not os.path.exists(os.path.join(tmpdir, '.lock')), \
+        "Lock should be cleaned up even after unhandled exception"
