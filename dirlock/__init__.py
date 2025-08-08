@@ -32,6 +32,7 @@ def _clean_locks():
     locks_to_release = list(_allActiveLocks)
     for dl in locks_to_release:
         dl.release()
+        _allActiveLocks.remove(dl)
 
 
 def handle_sigint_cleanup(signum, frame):
