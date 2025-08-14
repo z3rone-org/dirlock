@@ -1,10 +1,76 @@
 import os
+import signal
 import time
+import atexit
 from datetime import datetime
+"""
+This module provides a directory-based locking mechanism.
+It allows for acquiring and releasing locks using directories,
+which can be useful in scenarios where file-based based
+operations can not be done atomically (e.g.
+distributed or cluster filesystem)
+
+The DirLock class provides methods to acquire and release locks,
+and it supports context management for easy usage.
+
+It also handles cleanup of locks on program exit or signal interrupts.
+"""
+
+
+# keep a list of currently acquired locks
+# so these can be cleaned up on exit
+_allActiveLocks = set()
+# we don't want to call the original handler
+original_sigint_handler = signal.getsignal(signal.SIGINT)
+original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+
+# function to clean up all active locks
+def _clean_locks():
+    global _allActiveLocks
+    # Create a copy to avoid "Set changed size during iteration" error
+    locks_to_release = list(_allActiveLocks)
+    for dl in locks_to_release:
+        dl.release()
+        _allActiveLocks.remove(dl)
+
+
+def handle_sigint_cleanup(signum, frame):
+    """
+    Handle SIGINT (Ctrl+C) cleanup.
+    This function is called when a SIGINT signal is received.
+    It cleans up all active locks and calls the original signal handler if it exists.
+    """
+    global original_sigint_handler
+    _clean_locks()
+    if original_sigint_handler is not None:
+        original_sigint_handler(signum, frame)
+
+
+def handle_sigterm_cleanup(signum, frame):
+    """
+    Handle SIGTERM cleanup.
+    This function is called when a SIGTERM signal is received.
+    It cleans up all active locks and calls the original signal handler if it exists.
+    """
+    global original_sigterm_handler
+    _clean_locks()
+    if original_sigterm_handler is not None:
+        original_sigterm_handler(signum, frame)
+
+
+# normal exit clean up
+atexit.register(_clean_locks)
+
+# ctrl+c cleanup
+signal.signal(signal.SIGINT, handle_sigint_cleanup)
+# sigterm cleanup
+signal.signal(signal.SIGTERM, handle_sigterm_cleanup)
 
 
 class DirLock:
     default_retry_interval: float = 0.1
+
     def __init__(self,
                  lock_dir: str,
                  retry_interval: float = None,
@@ -30,12 +96,14 @@ class DirLock:
         """
         Acquire the lock by following the directory-based lock mechanism.
         """
+        global _allActiveLocks
         start_time = datetime.now()
 
         while True:
             try:
                 os.mkdir(self.lock_dir)
                 self.acquired = True
+                _allActiveLocks.add(self)
                 break
             except FileExistsError:
                 pass
@@ -51,11 +119,13 @@ class DirLock:
         """
         Release the lock if it is held by this instance.
         """
-        try:
-            os.rmdir(self.lock_dir)
-        except FileNotFoundError:
-            pass
-        self.acquired = False
+        if self.acquired:
+            try:
+                os.rmdir(self.lock_dir)
+                _allActiveLocks.remove(self)
+            except FileNotFoundError:
+                pass
+            self.acquired = False
 
     def __enter__(self):
         """
@@ -70,6 +140,8 @@ class DirLock:
         """
         self.release()
 
+
 class LockTimeoutException(Exception):
     def __init__(self, message="acquiring lock timed out"):
         super().__init__(message)
+
