@@ -52,9 +52,12 @@ def handle_sigint_cleanup(signum, frame):
     _clean_locks()
     if original_sigint_handler is not None:
         # restore the original handler 
-        signal.signal(signal.SIGINT, original_sigint_handler)
-        # and re-raise the signal
-        os.kill(os.getpid(), signal.SIGINT)
+        if callable(original_sigint_handler):
+            original_sigint_handler(signum, frame)
+        else:
+            signal.signal(signal.SIGINT, original_sigint_handler)
+            # and re-raise the signal
+            os.kill(os.getpid(), signal.SIGINT)
 
 
 def handle_sigterm_cleanup(signum, frame):
@@ -66,10 +69,13 @@ def handle_sigterm_cleanup(signum, frame):
     global original_sigterm_handler
     _clean_locks()
     if original_sigterm_handler is not None:
-        # restore the original handler 
-        signal.signal(signal.SIGTERM, original_sigterm_handler)
-        # and re-raise the signal
-        os.kill(os.getpid(), signal.SIGTERM)
+        # restore the original handler
+        if callable(original_sigterm_handler):
+            original_sigterm_handler(signum, frame)
+        else:
+            signal.signal(signal.SIGTERM, original_sigterm_handler)
+            # and re-raise the signal
+            os.kill(os.getpid(), signal.SIGTERM)
 
 
 # normal exit clean up
