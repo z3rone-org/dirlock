@@ -20,9 +20,17 @@ It also handles cleanup of locks on program exit or signal interrupts.
 # keep a list of currently acquired locks
 # so these can be cleaned up on exit
 _allActiveLocks = set()
-# we don't want to call the original handler
-original_sigint_handler = signal.getsignal(signal.SIGINT)
-original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+# we don't want to miss the original handler
+try:
+    original_sigint_handler = signal.getsignal(signal.SIGINT)
+except Exception: 
+        pass
+
+try:
+    original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+except Exception: 
+        pass
 
 
 # function to clean up all active locks
