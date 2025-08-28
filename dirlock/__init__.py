@@ -68,10 +68,17 @@ def handle_sigterm_cleanup(signum, frame):
 # normal exit clean up
 atexit.register(_clean_locks)
 
-# ctrl+c cleanup
-signal.signal(signal.SIGINT, handle_sigint_cleanup)
-# sigterm cleanup
-signal.signal(signal.SIGTERM, handle_sigterm_cleanup)
+try:
+    # ctrl+c cleanup
+    signal.signal(signal.SIGINT, handle_sigint_cleanup)
+except Exception:
+    pass
+
+try:
+    # sigterm cleanup
+    signal.signal(signal.SIGTERM, handle_sigterm_cleanup)
+except Exception:
+    pass
 
 
 class DirLock:
