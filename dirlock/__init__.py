@@ -20,9 +20,17 @@ It also handles cleanup of locks on program exit or signal interrupts.
 # keep a list of currently acquired locks
 # so these can be cleaned up on exit
 _allActiveLocks = set()
-# we don't want to call the original handler
-original_sigint_handler = signal.getsignal(signal.SIGINT)
-original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+# we don't want to miss the original handler
+try:
+    original_sigint_handler = signal.getsignal(signal.SIGINT)
+except Exception: 
+        pass
+
+try:
+    original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+except Exception: 
+        pass
 
 
 # function to clean up all active locks
@@ -32,7 +40,6 @@ def _clean_locks():
     locks_to_release = list(_allActiveLocks)
     for dl in locks_to_release:
         dl.release()
-        _allActiveLocks.remove(dl)
 
 
 def handle_sigint_cleanup(signum, frame):
@@ -44,7 +51,13 @@ def handle_sigint_cleanup(signum, frame):
     global original_sigint_handler
     _clean_locks()
     if original_sigint_handler is not None:
-        original_sigint_handler(signum, frame)
+        # restore the original handler 
+        if callable(original_sigint_handler):
+            original_sigint_handler(signum, frame)
+        else:
+            signal.signal(signal.SIGINT, original_sigint_handler)
+            # and re-raise the signal
+            os.kill(os.getpid(), signal.SIGINT)
 
 
 def handle_sigterm_cleanup(signum, frame):
@@ -56,16 +69,29 @@ def handle_sigterm_cleanup(signum, frame):
     global original_sigterm_handler
     _clean_locks()
     if original_sigterm_handler is not None:
-        original_sigterm_handler(signum, frame)
+        # restore the original handler
+        if callable(original_sigterm_handler):
+            original_sigterm_handler(signum, frame)
+        else:
+            signal.signal(signal.SIGTERM, original_sigterm_handler)
+            # and re-raise the signal
+            os.kill(os.getpid(), signal.SIGTERM)
 
 
 # normal exit clean up
 atexit.register(_clean_locks)
 
-# ctrl+c cleanup
-signal.signal(signal.SIGINT, handle_sigint_cleanup)
-# sigterm cleanup
-signal.signal(signal.SIGTERM, handle_sigterm_cleanup)
+try:
+    # ctrl+c cleanup
+    signal.signal(signal.SIGINT, handle_sigint_cleanup)
+except Exception:
+    pass
+
+try:
+    # sigterm cleanup
+    signal.signal(signal.SIGTERM, handle_sigterm_cleanup)
+except Exception:
+    pass
 
 
 class DirLock:
